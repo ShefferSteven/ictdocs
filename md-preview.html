@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Local Markdown Preview</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: #f5f5f5;
+    color: #24292f;
+  }
+  #bar {
+    position: sticky; top: 0; z-index: 10;
+    background: #fff; border-bottom: 1px solid #d0d7de;
+    padding: 10px 16px; display: flex; gap: 12px; align-items: center;
+    font-size: 14px;
+  }
+  #bar input[type=file] { font-size: 14px; }
+  #dropzone {
+    max-width: 900px; margin: 40px auto; padding: 60px 20px;
+    border: 2px dashed #ccc; border-radius: 8px; text-align: center;
+    color: #666;
+  }
+  #dropzone.drag { border-color: #0969da; color: #0969da; background: #f0f7ff; }
+  #doc {
+    max-width: 900px; margin: 24px auto 80px; background: #fff;
+    padding: 32px 48px; border: 1px solid #d0d7de; border-radius: 8px;
+    line-height: 1.6;
+  }
+  #doc h1, #doc h2, #doc h3 { border-bottom: 1px solid #eee; padding-bottom: .3em; }
+  #doc code { background: #f6f8fa; padding: .15em .35em; border-radius: 4px; font-size: 85%; }
+  #doc pre { background: #f6f8fa; padding: 12px 16px; border-radius: 6px; overflow-x: auto; }
+  #doc pre code { background: none; padding: 0; }
+  #doc table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  #doc th, #doc td { border: 1px solid #d0d7de; padding: 6px 12px; }
+  #doc th { background: #f6f8fa; }
+  #doc blockquote { border-left: 4px solid #d0d7de; margin: 0; padding-left: 1em; color: #57606a; }
+  .katex-display { overflow-x: auto; overflow-y: hidden; }
+  #err { color: #b00; white-space: pre-wrap; font-family: monospace; }
+  #filename { color: #57606a; }
+</style>
+</head>
+<body>
+  <div id="bar">
+    <strong>Markdown Preview</strong>
+    <input type="file" id="picker" accept=".md,.markdown,text/markdown">
+    <span id="filename"></span>
+  </div>
+  <div id="dropzone">Drop a .md file here, or use the picker above.<br>Nothing is uploaded — everything renders locally in this tab.</div>
+  <div id="doc" hidden></div>
+
+<script>
+const picker = document.getElementById('picker');
+const dropzone = document.getElementById('dropzone');
+const doc = document.getElementById('doc');
+const filenameEl = document.getElementById('filename');
+
+marked.setOptions({ gfm: true, breaks: false });
+
+// GitLab-flavored extras marked doesn't know about:
+//  - fenced ```math blocks -> KaTeX display math
+//  - inline $`...`$ -> KaTeX inline math
+function render(text) {
+  // Pull out inline $`...`$ math before marked touches the text, so its
+  // backtick handling doesn't mangle it. Restore after rendering.
+  const inlineMath = [];
+  text = text.replace(/\$`([^`]+?)`\$/g, (_, tex) => {
+    inlineMath.push(tex);
+    return `@@MATHINLINE${inlineMath.length - 1}@@`;
+  });
+
+  let html = marked.parse(text);
+
+  // Swap fenced ```math code blocks for KaTeX display math.
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  tmp.querySelectorAll('code.language-math').forEach(code => {
+    const wrap = document.createElement('div');
+    try {
+      katex.render(code.textContent, wrap, { displayMode: true, throwOnError: false });
+    } catch (e) {
+      wrap.textContent = code.textContent;
+    }
+    code.closest('pre').replaceWith(wrap);
+  });
+  html = tmp.innerHTML;
+
+  // Restore inline math placeholders as rendered KaTeX spans.
+  html = html.replace(/@@MATHINLINE(\d+)@@/g, (_, i) => {
+    try {
+      return katex.renderToString(inlineMath[+i], { displayMode: false, throwOnError: false });
+    } catch (e) {
+      return inlineMath[+i];
+    }
+  });
+
+  doc.innerHTML = html;
+  doc.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+  doc.hidden = false;
+  dropzone.hidden = true;
+}
+
+function loadFile(file) {
+  filenameEl.textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = () => render(reader.result);
+  reader.readAsText(file);
+}
+
+picker.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+['dragenter', 'dragover'].forEach(evt =>
+  dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(evt =>
+  dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
+dropzone.addEventListener('drop', e => {
+  const file = e.dataTransfer.files[0];
+  if (file) loadFile(file);
+});
+// Allow dropping onto the whole page once a doc is showing too.
+document.body.addEventListener('dragover', e => e.preventDefault());
+document.body.addEventListener('drop', e => {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (file) loadFile(file);
+});
+</script>
+</body>
+</html>
